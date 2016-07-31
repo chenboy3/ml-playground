@@ -16,7 +16,11 @@ def max_pool(x, ksize):
     return tf.nn.max_pool(x, ksize=[1, ksize, ksize, 1], strides=[1, ksize, ksize, 1], padding='SAME')
 
 
-def net(file_name, x):
+def avg_pool(x, ksize):
+    return tf.nn.avg_pool(x, ksize=[1, ksize, ksize, 1], strides=[1, ksize, ksize, 1], padding='SAME')
+
+
+def net(file_name, x, pooling_function='MAX'):
     mat_dict = scipy.io.loadmat(file_name)
     img_mean = mat_dict['meta'][0][0][1][0][0][0][0][0]
     layers = mat_dict['layers'][0]
@@ -41,7 +45,10 @@ def net(file_name, x):
             content_activations["relu"+str(pool_num)+"_"+str(relu_num)] = vgg
             relu_num += 1
         elif layer_type == 'pool':
-            vgg = max_pool(vgg, 2)
+            if pooling_function == 'AVG':
+                vgg = avg_pool(vgg, 2)
+            else:
+                vgg = max_pool(vgg, 2)
             pool_num += 1
             relu_num = 1
     return vgg, content_activations, img_mean

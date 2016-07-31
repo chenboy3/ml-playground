@@ -18,16 +18,18 @@ CONTENT_LAYER = 'relu4_2'
 STYLE_LAYERS = {'relu1_1': 0.2, 'relu2_1': 0.2, 'relu3_1': 0.2, 'relu4_1': 0.2, 'relu5_1': 0.2}
 DEVICE = '/cpu:0'
 CONTENT_WEIGHT = 0.005
+STYLE_WEIGHT = 1
+DENOISE_WEIGHT = 1
 ITERATIONS = 1000
 
 # Network parameters
 VGG_19_PATH = 'models/imagenet-vgg-verydeep-19.mat'
 LEARNING_RATE = 10
+POOLING_FUNCTION = 'MAX'
 
 # Load images
 content_image = utils.read_image(CONTENT_PATH)
 style_image = utils.read_image(STYLE_PATH)
-print(style_image.shape)
 
 g = tf.Graph()
 with g.device(DEVICE), g.as_default(), tf.Session() as sess:
@@ -35,7 +37,7 @@ with g.device(DEVICE), g.as_default(), tf.Session() as sess:
     print("1. Computing content representation...")
     content_shape = (1,) + content_image.shape  # add batch size dimension
     x = tf.placeholder(tf.float32, content_shape)
-    net, activations, img_mean = vgg.net(VGG_19_PATH, x)
+    net, activations, img_mean = vgg.net(VGG_19_PATH, x, pooling_function=POOLING_FUNCTION)
 
     # Pre-process image
     content_image_pp = utils.preprocess_image(content_image, img_mean)
@@ -46,7 +48,7 @@ with g.device(DEVICE), g.as_default(), tf.Session() as sess:
     print("2. Computing style Gram matrices...")
     style_shape = (1,) + style_image.shape  # add batch size dimension
     x = tf.placeholder(tf.float32, style_shape)
-    net, activations, _ = vgg.net(VGG_19_PATH, x)
+    net, activations, _ = vgg.net(VGG_19_PATH, x, pooling_function=POOLING_FUNCTION)
 
     # Pre-process image
     style_image_pp = utils.preprocess_image(style_image, img_mean)
@@ -62,7 +64,7 @@ with g.device(DEVICE), g.as_default(), tf.Session() as sess:
     # 3. Set up loss
     print("3. Setting up loss...")
     styled_image = utils.initialize_image(content_shape, img_mean, path=INITIAL_IMAGE_PATH)
-    net, activations, _ = vgg.net(VGG_19_PATH, styled_image)
+    net, activations, _ = vgg.net(VGG_19_PATH, styled_image, pooling_function=POOLING_FUNCTION)
 
     # Content less
     loss_content = tf.nn.l2_loss(activations[CONTENT_LAYER] - content_representation) / 2.0
@@ -78,7 +80,14 @@ with g.device(DEVICE), g.as_default(), tf.Session() as sess:
         gram_matrix = tf.matmul(tf.transpose(features), features)
         loss_style += w_l / (4 * N_l**2 * M_l **2) * tf.nn.l2_loss(gram_matrix - gram_matrices[layer])
 
-    loss = CONTENT_WEIGHT * loss_content + (1 - CONTENT_WEIGHT) * loss_style
+    # Total variation loss (denoising)
+    loss_tv = (tf.nn.l2_loss(styled_image[:, :, :content_shape[2]-1, :]
+                            - styled_image[:, :, 1:, :])
+              + tf.nn.l2_loss(styled_image[:, :content_shape[1]-1, :, :]
+                            - styled_image[:, 1:, :, :]))
+
+    # Total loss
+    loss = CONTENT_WEIGHT * loss_content + STYLE_WEIGHT * loss_style + DENOISE_WEIGHT * loss_tv
 
     # 4. Optimize
     print("4. Optimizing...")
@@ -105,4 +114,3 @@ with g.device(DEVICE), g.as_default(), tf.Session() as sess:
 best_styled_image = utils.postprocess_image(best_styled_image, img_mean)
 output_path = utils.stylized_path(CONTENT_PATH, INITIAL_IMAGE_PATH, STYLE_PATH)
 utils.write_image(best_styled_image, output_path)
-
